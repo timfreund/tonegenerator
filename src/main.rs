@@ -1,4 +1,5 @@
 // extern crate crossbeam_channel;
+extern crate hex;
 extern crate jack;
 
 // use crossbeam_channel::bounded;
@@ -13,7 +14,7 @@ fn midi_to_frequency(midi_note: i8) -> f64 {
 fn main() {
     let(jack_client, _status) = jack::Client::new("tone_generator", jack::ClientOptions::NO_START_SERVER).unwrap();
     let mut audio_out = jack_client.register_port("audio_out", jack::AudioOut::default()).unwrap();
-    let midi_int = jack_client.register_port("midi_in", jack::MidiIn::default()).unwrap();
+    let midi_in = jack_client.register_port("midi_in", jack::MidiIn::default()).unwrap();
     println!("{}", midi_to_frequency(67));
 
     let frequency = midi_to_frequency(67);
@@ -21,7 +22,7 @@ fn main() {
     let frame_t = 1.0 / sample_rate as f64;
     let mut time = 0.0;
 
-    let generate_tone = jack::ClosureProcessHandler::new(
+    let jack_callback = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             let out = audio_out.as_mut_slice(ps);
 
@@ -31,11 +32,17 @@ fn main() {
                 *v = y as f32;
                 time += frame_t;
             }
+
+            let midi_data = midi_in.iter(ps);
+            for raw_midi in midi_data {
+                println!("{}", hex::encode(raw_midi.bytes))
+            }
             jack::Control::Continue
         },
     );
 
-    let aclient = jack_client.activate_async((), generate_tone).unwrap();
+    let active_jack_client = jack_client.activate_async((), jack_callback).unwrap();
+
     let sleep_period = time::Duration::from_millis(500);
     loop {
         thread::sleep(sleep_period);
